@@ -1,0 +1,36 @@
+name: Deploy to MonsterASP
+
+on:
+  push:
+    branches: [ "main" ] # deployment will be triggered on pushes to the main branch
+
+jobs:
+  build-and-deploy:
+    runs-on: windows-latest # use Windows runner for WebDeploy
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x # specify your .NET version
+
+      - name: Publish Project
+        run: dotnet publish -c Release -o ./publish
+
+      - name: Deploy via WebDeploy
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ secrets.WEBSITE_NAME }}
+          publish-profile: |
+            <publishData>
+              <publishProfile 
+                publishMethod="MSDeploy" 
+                publishUrl="${{ secrets.SERVER_COMPUTER_NAME }}" 
+                msdeploySite="${{ secrets.WEBSITE_NAME }}" 
+                userName="${{ secrets.SERVER_USERNAME }}" 
+                userPWD="${{ secrets.SERVER_PASSWORD }}" 
+                authType="Basic" />
+            </publishData>
