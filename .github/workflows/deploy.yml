@@ -1,13 +1,12 @@
-name: Deploy to MonsterASP
+name: Production Deployment
 
 on:
   push:
-    branches: [ "main" ] # deployment will be triggered on pushes to the main branch
+    branches: [ "main" ] # Trigger deployment on push to main branch
 
 jobs:
   build-and-deploy:
-    runs-on: windows-latest # use Windows runner for WebDeploy
-
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -15,22 +14,22 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x # specify your .NET version
+          dotnet-version: 8.0.x
 
-      - name: Publish Project
+      - name: Restore & Build
+        run: |
+          dotnet restore
+          dotnet build --configuration Release --no-restore
+
+      - name: Publish
         run: dotnet publish -c Release -o ./publish
 
-      - name: Deploy to MonsterASP
-        uses: Azure/webapps-deploy@v2
+      - name: Deploy via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          publish-profile: |
-            <publishData>
-              <publishProfile 
-                publishMethod="MSDeploy" 
-                publishUrl="${{ secrets.SERVER_COMPUTER_NAME }}" 
-                msdeploySite="${{ secrets.WEBSITE_NAME }}" 
-                userName="${{ secrets.SERVER_USERNAME }}" 
-                userPWD="${{ secrets.SERVER_PASSWORD }}" 
-                authType="Basic" />
-            </publishData>
-          package: './publish'
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./publish/
+          server-dir: /wwwroot/ # Adjust to your server directory
+          delete-destination-extra-files: false # Set to true to remove files on server not present in local-dir
