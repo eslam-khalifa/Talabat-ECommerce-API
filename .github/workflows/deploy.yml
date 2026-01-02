@@ -21,5 +21,16 @@ jobs:
         run: dotnet publish -c Release -o ./publish
 
       - name: Deploy to MonsterASP
-        run: |
-          msdeploy.exe -verb:sync -source:contentPath='${{ github.workspace }}/publish' -dest:contentPath='${{ secrets.WEBSITE_NAME }}',ComputerName='${{ secrets.SERVER_COMPUTER_NAME }}',UserName='${{ secrets.SERVER_USERNAME }}',Password='${{ secrets.SERVER_PASSWORD }}',AuthType='Basic' -enableRule:AppOffline
+        uses: Azure/webapps-deploy@v2
+        with:
+          publish-profile: |
+            <publishData>
+              <publishProfile 
+                publishMethod="MSDeploy" 
+                publishUrl="${{ secrets.SERVER_COMPUTER_NAME }}" 
+                msdeploySite="${{ secrets.WEBSITE_NAME }}" 
+                userName="${{ secrets.SERVER_USERNAME }}" 
+                userPWD="${{ secrets.SERVER_PASSWORD }}" 
+                authType="Basic" />
+            </publishData>
+          package: './publish'
