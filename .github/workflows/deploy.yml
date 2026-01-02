@@ -20,7 +20,7 @@ jobs:
         run: dotnet restore
 
       - name: Publish API Project
-        run: dotnet publish LinkDev.Talabat.APIs/LinkDev.Talabat.APIs.csproj -c Release -o ./publish --runtime win-x64 --self-contained false
+        run: dotnet publish Talabat.APIs/Talabat.APIs.csproj -c Release -o ./publish --runtime win-x64 --self-contained false
 
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -29,5 +29,5 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./publish/
-          server-dir: /wwwroot/
-          delete-destination-extra-files: false
+          server-dir: /wwwroot/ 
+          dangerous-clean-slate: false
