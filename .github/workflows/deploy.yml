@@ -21,10 +21,5 @@ jobs:
         run: dotnet publish -c Release -o ./publish
 
       - name: Deploy to MonsterASP
-        uses: itsme-shubh/msdeploy-action@v1.0.1
-        with:
-            server: ${{ secrets.SERVER_COMPUTER_NAME }}
-            username: ${{ secrets.SERVER_USERNAME }}
-            password: ${{ secrets.SERVER_PASSWORD }}
-            sitename: ${{ secrets.WEBSITE_NAME }}
-            localpath: './publish'
+        run: |
+          msdeploy.exe -verb:sync -source:contentPath='${{ github.workspace }}/publish' -dest:contentPath='${{ secrets.WEBSITE_NAME }}',ComputerName='${{ secrets.SERVER_COMPUTER_NAME }}',UserName='${{ secrets.SERVER_USERNAME }}',Password='${{ secrets.SERVER_PASSWORD }}',AuthType='Basic' -enableRule:AppOffline
