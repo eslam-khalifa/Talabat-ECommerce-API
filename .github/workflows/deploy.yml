@@ -1,8 +1,8 @@
-name: Production Deployment
+name: Professional Clean Architecture Deploy
 
 on:
   push:
-    branches: [ "main" ] # Trigger deployment on push to main branch
+    branches: [ "main" ]
 
 jobs:
   build-and-deploy:
@@ -16,13 +16,11 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Restore & Build
-        run: |
-          dotnet restore
-          dotnet build --configuration Release --no-restore
+      - name: Restore Dependencies
+        run: dotnet restore
 
-      - name: Publish
-        run: dotnet publish -c Release -o ./publish
+      - name: Publish API Project
+        run: dotnet publish LinkDev.Talabat.APIs/LinkDev.Talabat.APIs.csproj -c Release -o ./publish --runtime win-x64 --self-contained false
 
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -31,5 +29,5 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./publish/
-          server-dir: /wwwroot/ # Adjust to your server directory
-          delete-destination-extra-files: false # Set to true to remove files on server not present in local-dir
+          server-dir: /wwwroot/
+          delete-destination-extra-files: false
