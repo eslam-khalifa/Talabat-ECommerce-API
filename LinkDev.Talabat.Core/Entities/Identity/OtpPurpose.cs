@@ -12,6 +12,10 @@ namespace LinkDev.Talabat.Core.Entities.Identity
         [EnumMember(Value = "EmailConfirmation")]
         EmailConfirmation,
         [EnumMember(Value = "PasswordReset")]
-        PasswordReset
+        PasswordReset,
+        [EnumMember(Value = "TwoFactorAuthentication")]
+        TwoFactorAuthentication,
+        [EnumMember(Value = "PhoneNumberVerification")]
+        PhoneNumberVerification
     }
 }

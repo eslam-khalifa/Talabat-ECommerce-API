@@ -19,6 +19,25 @@ namespace LinkDev.Talabat.Application
         IIdentityGenericRepository<EmailOtp> identityGenericRepository,
         IEmailService emailService) : IAuthService
     {
+        public async Task<OperationResult<bool>> ConfirmEmailWithOtpAsync(string email, string otpCode, CancellationToken cancellationToken)
+        {
+            var user = await userManager.FindByEmailAsync(email);
+            if (user is null) return OperationResult<bool>.Fail("User not found.");
+
+            var otpCodeHash = OtpHelper.HashOtp(otpCode);
+
+            var spec = new EmailOtpByUserAndPurposeSpecification(user.Id, OtpPurpose.EmailConfirmation.ToString(), otpCodeHash);
+            var otpEntry = await identityGenericRepository.GetWithSpecAsync(spec);
+            if (otpEntry is null) return OperationResult<bool>.Fail("OTP is not correct.");
+            if (otpEntry.ExpiresAt < DateTime.UtcNow) return OperationResult<bool>.Fail("OTP expired.");
+
+            user.EmailConfirmed = true;
+            var result = await userManager.UpdateAsync(user);
+            if (!result.Succeeded) return OperationResult<bool>.Fail("Failed to confirm email.");
+
+            return OperationResult<bool>.Success();
+        }
+
         // header & payload => encoding using Base64UrlEncoding
         // signature (header + payload + secret key) => hashing
         public async Task<OperationResult<string>> CreateTokenAsync(ApplicationUser applicationUser)
@@ -250,23 +269,18 @@ namespace LinkDev.Talabat.Application
             return OperationResult<EmailOtp>.Success();
         }
 
-        public async Task<OperationResult<bool>> ConfirmEmailWithOtpAsync(string email, string otpCode, CancellationToken cancellationToken)
+        public async Task<OperationResult<bool>> ToggleTwoFactorAsync(ClaimsPrincipal userClaims, bool enable)
         {
-            var user = await userManager.FindByEmailAsync(email);
-            if (user is null) return OperationResult<bool>.Fail("User not found.");
-
-            var otpCodeHash = OtpHelper.HashOtp(otpCode);
-
-            var spec = new EmailOtpByUserAndPurposeSpecification(user.Id, OtpPurpose.EmailConfirmation.ToString(), otpCodeHash);
-            var otpEntry = await identityGenericRepository.GetWithSpecAsync(spec);
-            if (otpEntry is null) return OperationResult<bool>.Fail("OTP is not correct.");
-            if (otpEntry.ExpiresAt < DateTime.UtcNow) return OperationResult<bool>.Fail("OTP expired.");
-
-            user.EmailConfirmed = true;
-            var result = await userManager.UpdateAsync(user);
-            if (!result.Succeeded) return OperationResult<bool>.Fail("Failed to confirm email.");
-
-            return OperationResult<bool>.Success();
+            var currentUserResult = await GetCurrentUserAsync(userClaims);
+            if (!currentUserResult.IsSuccess)
+                return OperationResult<bool>.Fail(currentUserResult.Errors);
+            var user = currentUserResult.Data;
+            if (user is null)
+                return OperationResult<bool>.Fail("User not found.");
+            var result = await userManager.SetTwoFactorEnabledAsync(user, enable);
+            if (!result.Succeeded)
+                return OperationResult<bool>.Fail(result.Errors.Select(e => e.Description).ToList());
+            return OperationResult<bool>.Success(enable);
         }
 
         public async Task<OperationResult<Address>> UpdateUserAddressAsync(ClaimsPrincipal userClaims, Address address)

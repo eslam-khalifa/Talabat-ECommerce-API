@@ -111,6 +111,15 @@ namespace LinkDev.Talabat.APIs.Controllers
         }
 
         [Authorize]
+        [HttpPost("2fa/toggle")]
+        public async Task<IActionResult> ToggleTwoFactorAuthentication([FromBody] ToggleTwoFactorDto dto, CancellationToken cancellationToken)
+        {
+            var operationResult = await authService.ToggleTwoFactorAsync(User, dto.Enable);
+            if (!operationResult.IsSuccess) return BadRequest(new ApiErrorResponse(400, operationResult.Errors));
+            return Ok(new ApiSuccessResponse(200, dto.Enable? "2FA toggled on successfully." : "2FA toggled off successfully.", operationResult.Data));
+        }
+
+        [Authorize]
         [HttpGet]
         public async Task<ActionResult<UserDto>> GetCurrentUser()
         {

@@ -6,6 +6,7 @@ namespace LinkDev.Talabat.Core.Services.Contracts
 {
     public interface IAuthService
     {
+        Task<OperationResult<bool>> ConfirmEmailWithOtpAsync(string email, string otp, CancellationToken cancellationToken);
         Task<OperationResult<string>> CreateTokenAsync(ApplicationUser applicationUser);
         Task<OperationResult<ApplicationUser>> GetCurrentUserAsync(ClaimsPrincipal userClaims);
         Task<OperationResult<Address>> GetUserAddressAsync(ClaimsPrincipal userClaims);
@@ -16,7 +17,7 @@ namespace LinkDev.Talabat.Core.Services.Contracts
         Task<OperationResult<EmailOtp>> RequestPasswordResetWithOtpAsync(string email, CancellationToken cancellationToken);
         Task<OperationResult<bool>> ResetPasswordWithOtpAsync(string NewPassword, string Email, string otp, CancellationToken cancellationToken);
         Task<OperationResult<EmailOtp>> SendEmailConfirmationOtpAsync(string email, CancellationToken cancellationToken);
-        Task<OperationResult<bool>> ConfirmEmailWithOtpAsync(string email, string otp, CancellationToken cancellationToken);
+        Task<OperationResult<bool>> ToggleTwoFactorAsync(ClaimsPrincipal userClaims, bool enable);
         Task<OperationResult<Address>> UpdateUserAddressAsync(ClaimsPrincipal userClaims, Address address);
     }
 }
