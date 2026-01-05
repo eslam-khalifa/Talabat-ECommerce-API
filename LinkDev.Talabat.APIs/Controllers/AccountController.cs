@@ -25,27 +25,24 @@ namespace LinkDev.Talabat.APIs.Controllers
 
         [AllowAnonymous]
         [HttpPost("login")]
-        public async Task<ActionResult<UserDto>> Login(LoginDto model, CancellationToken cancellationToken)
+        public async Task<IActionResult> Login(LoginDto model, CancellationToken cancellationToken)
         {
-            var userResult = await authService.LoginAsync(model.Email, model.Password);
-            if (!userResult.IsSuccess) return Unauthorized(new ApiErrorResponse(401, userResult.Errors));
-            if (userResult.Data is null) return BadRequest(new ApiErrorResponse(400, "User not found!"));
-            if (!userResult.Data.EmailConfirmed) return BadRequest(new ApiErrorResponse(400, "Please confirm your email before logging in."));
-            var token = await authService.CreateTokenAsync(userResult.Data);
-            if (!token.IsSuccess) return Unauthorized(new ApiErrorResponse(401, token.Errors));
-            await emailService.SendEmailAsync(model.Email, "Welcome Back", "Welcome Back To Talabat Website! You've signed in successfully.", cancellationToken);
-            var userDto = new UserDto()
+            var result = await authService.LoginAsync(model.Email, model.Password, cancellationToken);
+            if (!result.IsSuccess) return Unauthorized(new ApiErrorResponse(401, result.Errors));
+            var response = new LoginResponse
             {
-                DisplayName = userResult.Data.DisplayName,
-                Email = userResult.Data.Email,
-                Token = token.Data
+                RequiresTwoFactor = result.Data.RequiresTwoFactor,
+                TempToken = result.Data.TempToken,
+                AccessToken = result.Data.AccessToken,
+                DisplayName = result.Data.User?.DisplayName,
+                Email = result.Data.User?.Email
             };
-            return Ok(userDto);
+            return Ok(new ApiSuccessResponse(200, response));
         }
 
         [AllowAnonymous]
         [HttpPost("register")]
-        public async Task<ActionResult<UserDto>> RegisterCustomer(RegisterDto model)
+        public async Task<IActionResult> RegisterCustomer(RegisterDto model, CancellationToken cancellationToken)
         {
             var user = new ApplicationUser()
             {
@@ -58,17 +55,17 @@ namespace LinkDev.Talabat.APIs.Controllers
             if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(400, result.Errors));
             var token = await authService.CreateTokenAsync(result.Data);
             if (!token.IsSuccess) return BadRequest(new ApiErrorResponse(400, token.Errors));
-            return Ok(new UserDto()
+            return Ok(new ApiSuccessResponse(200, new UserDto()
             {
                 DisplayName = result.Data.DisplayName,
                 Email = result.Data.Email,
                 Token = token.Data
-            });
+            }));
         }
 
         [Authorize(Roles = "SuperAdmin, Admin")]
         [HttpPost("register/{role}")]
-        public async Task<ActionResult<RegisterUserWithRoleDto>> RegisterUserWithRole(RegisterDto model, string role)
+        public async Task<IActionResult> RegisterUserWithRole(RegisterDto model, string role, CancellationToken cancellationToken)
         {
             var user = new ApplicationUser()
             {
@@ -79,11 +76,11 @@ namespace LinkDev.Talabat.APIs.Controllers
             };
             var result = await authService.RegisterUserWithRoleAsync(user, model.Password, role, User.FindAll(ClaimTypes.Role).Select(role => role.Value).ToList());
             if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(400, result.Errors));
-            return Ok(new RegisterUserWithRoleDto()
+            return Ok(new ApiSuccessResponse(200, new RegisterUserWithRoleDto()
             {
                 DisplayName = result.Data.DisplayName,
                 Email = result.Data.Email
-            });
+            }));
         }
 
         [HttpPost("request-password-reset")]
@@ -114,53 +111,53 @@ namespace LinkDev.Talabat.APIs.Controllers
         [HttpPost("2fa/toggle")]
         public async Task<IActionResult> ToggleTwoFactorAuthentication([FromBody] ToggleTwoFactorDto dto, CancellationToken cancellationToken)
         {
-            var operationResult = await authService.ToggleTwoFactorAsync(User, dto.Enable);
+            var operationResult = await authService.ToggleTwoFactorAsync(User, dto.Enable, cancellationToken);
             if (!operationResult.IsSuccess) return BadRequest(new ApiErrorResponse(400, operationResult.Errors));
             return Ok(new ApiSuccessResponse(200, dto.Enable? "2FA toggled on successfully." : "2FA toggled off successfully.", operationResult.Data));
         }
 
         [Authorize]
         [HttpGet]
-        public async Task<ActionResult<UserDto>> GetCurrentUser()
+        public async Task<IActionResult> GetCurrentUser()
         {
             var result = await authService.GetCurrentUserAsync(User);
             if (!result.IsSuccess) return Unauthorized(new ApiErrorResponse(401, result.Errors));
             var token = await authService.CreateTokenAsync(result.Data);
             if (!token.IsSuccess) return BadRequest(new ApiErrorResponse(400, token.Errors));
-            return Ok(new UserDto()
+            return Ok(new ApiSuccessResponse(200, new UserDto()
             {
                 DisplayName = result.Data?.DisplayName ?? string.Empty,
                 Email = result.Data?.Email ?? string.Empty,
                 Token = token.Data
-            });
+            }));
         }
 
         [Authorize]
         [HttpGet("address")]
-        public async Task<ActionResult<AddressDto>> GetUserAddress()
+        public async Task<IActionResult> GetUserAddress(CancellationToken cancellationToken)
         {
             var result = await authService.GetUserAddressAsync(User);
             if (!result.IsSuccess) return Unauthorized(new ApiErrorResponse(401, result.Errors));
-            return Ok(mapper.Map<AddressDto>(result.Data));
+            return Ok(new ApiSuccessResponse(200, mapper.Map<AddressDto>(result.Data)));
         }
 
         [Authorize]
         [HttpPut("address")]
-        public async Task<ActionResult<Address>> UpdateUserAddress(AddressDto address)
+        public async Task<IActionResult> UpdateUserAddress(AddressDto address, CancellationToken cancellationToken)
         {
             var updatedAddress = mapper.Map<Address>(address);
-            var userResult = await authService.UpdateUserAddressAsync(User, updatedAddress);
+            var userResult = await authService.UpdateUserAddressAsync(User, updatedAddress, cancellationToken);
             if (!userResult.IsSuccess) return BadRequest(new ApiErrorResponse(400, userResult.Errors));
-            return Ok(address);
+            return Ok(new ApiSuccessResponse(200, address));
         }
 
         [Authorize]
         [HttpGet("roles")]
-        public async Task<IActionResult> GetUserRoles()
+        public async Task<IActionResult> GetUserRoles(CancellationToken cancellationToken)
         {
             var result = await authService.GetUserRolesAsync(User);
             if (!result.IsSuccess) return NotFound(new ApiErrorResponse(404, result.Errors));
-            return Ok(result.Data);
+            return Ok(new ApiSuccessResponse(200, result.Data));
         }
     }
 }

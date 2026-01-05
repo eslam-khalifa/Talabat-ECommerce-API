@@ -94,13 +94,77 @@ namespace LinkDev.Talabat.Application
             return OperationResult<IList<string>>.Success(userRoles);
         }
 
-        public async Task<OperationResult<ApplicationUser>> LoginAsync(string email, string Password)
+        public async Task<OperationResult<LoginResult>> LoginAsync(string email, string password, CancellationToken cancellationToken = default)
         {
-            var applicationUser = await userManager.FindByEmailAsync(email);
-            if (applicationUser is null) return OperationResult<ApplicationUser>.Fail("User not found.");
-            var result = await userManager.CheckPasswordAsync(applicationUser, Password);
-            if (!result) return OperationResult<ApplicationUser>.Fail("User not found.");
-            return OperationResult<ApplicationUser>.Success(applicationUser);
+            var user = await userManager.FindByEmailAsync(email);
+            if (user is null) return OperationResult<LoginResult>.Fail("User not found.");
+            
+            var result = await userManager.CheckPasswordAsync(user, password);
+            if (!result) return OperationResult<LoginResult>.Fail("User not found.");
+
+            if (!user.EmailConfirmed) 
+                return OperationResult<LoginResult>.Fail("Please confirm your email before logging in.");
+
+            if (user.TwoFactorEnabled)
+            {
+                var otp = OtpHelper.GenerateOtp();
+                var hashedOtp = OtpHelper.HashOtp(otp);
+
+                var otpEntry = new EmailOtp
+                {
+                    UserId = user.Id,
+                    Otp = hashedOtp,
+                    Purpose = OtpPurpose.TwoFactorAuthentication.ToString(),
+                    ExpiresAt = DateTime.UtcNow.AddMinutes(5)
+                };
+
+                identityGenericRepository.Add(otpEntry);
+                await identityGenericRepository.SaveChangesAsync(cancellationToken);
+
+                await emailService.SendEmailAsync(user.Email, "Your login verification code", $"Your login code is: {otp}", cancellationToken);
+
+                var tempToken = CreateTwoFactorToken(user);
+
+                return OperationResult<LoginResult>.Success(new LoginResult
+                {
+                    RequiresTwoFactor = true,
+                    TempToken = tempToken,
+                    User = user
+                });
+            }
+
+            var tokenResult = await CreateTokenAsync(user);
+            if (!tokenResult.IsSuccess) return OperationResult<LoginResult>.Fail(tokenResult.Errors);
+
+            await emailService.SendEmailAsync(user.Email, "Welcome Back", "Welcome Back To Talabat Website! You've signed in successfully.", cancellationToken);
+
+            return OperationResult<LoginResult>.Success(new LoginResult
+            {
+                RequiresTwoFactor = false,
+                AccessToken = tokenResult.Data,
+                User = user
+            });
+        }
+
+        private string CreateTwoFactorToken(ApplicationUser user)
+        {
+            var authClaims = new List<Claim>()
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, user.Id),
+                new Claim("purpose", "2fa_verification")
+            };
+
+            var authKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["JWT:AuthKey"] ?? string.Empty));
+
+            var token = new JwtSecurityToken(
+                audience: configuration["JWT:ValidAudience"],
+                issuer: configuration["JWT:ValidIssuer"],
+                expires: DateTime.UtcNow.AddMinutes(5),
+                claims: authClaims,
+                signingCredentials: new SigningCredentials(authKey, SecurityAlgorithms.HmacSha256)
+            );
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
         public async Task<OperationResult<ApplicationUser>> RegisterCustomerAsync(ApplicationUser applicationUser, string password)
@@ -269,7 +333,7 @@ namespace LinkDev.Talabat.Application
             return OperationResult<EmailOtp>.Success();
         }
 
-        public async Task<OperationResult<bool>> ToggleTwoFactorAsync(ClaimsPrincipal userClaims, bool enable)
+        public async Task<OperationResult<bool>> ToggleTwoFactorAsync(ClaimsPrincipal userClaims, bool enable, CancellationToken cancellationToken = default)
         {
             var currentUserResult = await GetCurrentUserAsync(userClaims);
             if (!currentUserResult.IsSuccess)
@@ -283,7 +347,7 @@ namespace LinkDev.Talabat.Application
             return OperationResult<bool>.Success(enable);
         }
 
-        public async Task<OperationResult<Address>> UpdateUserAddressAsync(ClaimsPrincipal userClaims, Address address)
+        public async Task<OperationResult<Address>> UpdateUserAddressAsync(ClaimsPrincipal userClaims, Address address, CancellationToken cancellationToken = default)
         {
             var applicationUser = await GetCurrentUserAsync(userClaims);
             if (!applicationUser.IsSuccess) return OperationResult<Address>.Fail(applicationUser.Errors);
