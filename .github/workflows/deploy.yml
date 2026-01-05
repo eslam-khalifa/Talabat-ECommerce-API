@@ -1,0 +1,51 @@
+name: Build and Deploy ASP.NET Core
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
+    - name: Inject secrets into appsettings.json
+      run: |
+        echo "Updating appsettings.json with GitHub secrets..."
+        sed -i "s|\"DefaultConnection\": \"\"|\"DefaultConnection\": \"${{ secrets.CONNECTIONSTRINGS__DEFAULTCONNECTION }}\"|g" LinkDev.Talabat.APIs/appsettings.json
+        sed -i "s|\"IdentityConnection\": \"\"|\"IdentityConnection\": \"${{ secrets.CONNECTIONSTRINGS__IDENTITYCONNECTION }}\"|g" LinkDev.Talabat.APIs/appsettings.json
+        sed -i "s|\"Redis\": \"\"|\"Redis\": \"${{ secrets.CONNECTIONSTRINGS__REDIS }}\"|g" LinkDev.Talabat.APIs/appsettings.json
+        sed -i "s|\"AuthKey\": \"\"|\"AuthKey\": \"${{ secrets.JWT__AUTHKEY }}\"|g" LinkDev.Talabat.APIs/appsettings.json
+        sed -i "s|\"From\": \"\"|\"From\": \"${{ secrets.EMAILPROVIDER__FROM }}\"|g" LinkDev.Talabat.APIs/appsettings.json
+        sed -i "s|\"UserName\": \"\"|\"UserName\": \"${{ secrets.EMAILPROVIDER__USERNAME }}\"|g" LinkDev.Talabat.APIs/appsettings.json
+        sed -i "s|\"Password\": \"\"|\"Password\": \"${{ secrets.EMAILPROVIDER__PASSWORD }}\"|g" LinkDev.Talabat.APIs/appsettings.json
+        sed -i "s|\"PublishableKey\": \"\"|\"PublishableKey\": \"${{ secrets.STRIPESETTINGS__PUBLISHABLEKEY }}\"|g" LinkDev.Talabat.APIs/appsettings.json
+        sed -i "s|\"SecretKey\": \"\"|\"SecretKey\": \"${{ secrets.STRIPESETTINGS__SECRETKEY }}\"|g" LinkDev.Talabat.APIs/appsettings.json
+
+
+    - name: Publish
+      run: dotnet publish LinkDev.Talabat.APIs/LinkDev.Talabat.APIs.csproj -c Release -o publish
+
+    - name: Deploy to MonsterASP via FTP
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      with:
+        server: ${{ secrets.FTP_SERVER }}
+        username: ${{ secrets.FTP_USERNAME }}
+        password: ${{ secrets.FTP_PASSWORD }}
+        local-dir: publish/
+        server-dir: /wwwroot/
