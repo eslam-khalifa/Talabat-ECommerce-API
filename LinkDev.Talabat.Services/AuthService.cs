@@ -10,6 +10,9 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using LinkDev.Talabat.Core.Results;
+using LinkDev.Talabat.Core.Commands;
+
 
 namespace LinkDev.Talabat.Application
 {
@@ -19,12 +22,12 @@ namespace LinkDev.Talabat.Application
         IIdentityGenericRepository<EmailOtp> identityGenericRepository,
         IEmailService emailService) : IAuthService
     {
-        public async Task<OperationResult<bool>> ConfirmEmailWithOtpAsync(string email, string otpCode, CancellationToken cancellationToken)
+        public async Task<OperationResult<bool>> ConfirmEmailWithOtpAsync(ConfirmEmailCommand command, CancellationToken cancellationToken)
         {
-            var user = await userManager.FindByEmailAsync(email);
+            var user = await userManager.FindByEmailAsync(command.Email);
             if (user is null) return OperationResult<bool>.Fail("User not found.");
 
-            var otpCodeHash = OtpHelper.HashOtp(otpCode);
+            var otpCodeHash = OtpHelper.HashOtp(command.Otp);
 
             var spec = new EmailOtpByUserAndPurposeSpecification(user.Id, OtpPurpose.EmailConfirmation.ToString(), otpCodeHash);
             var otpEntry = await identityGenericRepository.GetWithSpecAsync(spec);
@@ -94,12 +97,12 @@ namespace LinkDev.Talabat.Application
             return OperationResult<IList<string>>.Success(userRoles);
         }
 
-        public async Task<OperationResult<LoginResult>> LoginAsync(string email, string password, CancellationToken cancellationToken = default)
+        public async Task<OperationResult<LoginResult>> LoginAsync(LoginCommand command, CancellationToken cancellationToken = default)
         {
-            var user = await userManager.FindByEmailAsync(email);
+            var user = await userManager.FindByEmailAsync(command.Email);
             if (user is null) return OperationResult<LoginResult>.Fail("User not found.");
             
-            var result = await userManager.CheckPasswordAsync(user, password);
+            var result = await userManager.CheckPasswordAsync(user, command.Password);
             if (!result) return OperationResult<LoginResult>.Fail("User not found.");
 
             if (!user.EmailConfirmed) 
@@ -125,12 +128,7 @@ namespace LinkDev.Talabat.Application
 
                 var tempToken = CreateTwoFactorToken(user);
 
-                return OperationResult<LoginResult>.Success(new LoginResult
-                {
-                    RequiresTwoFactor = true,
-                    TempToken = tempToken,
-                    User = user
-                });
+                return OperationResult<LoginResult>.Success(new LoginResult(true, tempToken, null, user));
             }
 
             var tokenResult = await CreateTokenAsync(user);
@@ -138,12 +136,7 @@ namespace LinkDev.Talabat.Application
 
             await emailService.SendEmailAsync(user.Email, "Welcome Back", "Welcome Back To Talabat Website! You've signed in successfully.", cancellationToken);
 
-            return OperationResult<LoginResult>.Success(new LoginResult
-            {
-                RequiresTwoFactor = false,
-                AccessToken = tokenResult.Data,
-                User = user
-            });
+            return OperationResult<LoginResult>.Success(new LoginResult(false, null, tokenResult.Data, user));
         }
 
         private string CreateTwoFactorToken(ApplicationUser user)
@@ -167,57 +160,65 @@ namespace LinkDev.Talabat.Application
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
-        public async Task<OperationResult<ApplicationUser>> RegisterCustomerAsync(ApplicationUser applicationUser, string password)
+        public async Task<OperationResult<ApplicationUser>> RegisterCustomerAsync(RegisterCustomerCommand command)
         {
-            var result = await userManager.CreateAsync(applicationUser, password);
+            var applicationUser = new ApplicationUser
+            {
+                DisplayName = command.DisplayName,
+                Email = command.Email,
+                UserName = command.Email.Split('@')[0],
+                PhoneNumber = command.PhoneNumber
+            };
+
+            var result = await userManager.CreateAsync(applicationUser, command.Password);
             if (!result.Succeeded) return OperationResult<ApplicationUser>.Fail("User not created.");
             var roleResult = await userManager.AddToRoleAsync(applicationUser, "customer");
             if (!roleResult.Succeeded) return OperationResult<ApplicationUser>.Fail("Failed to assign customer role.");
             return OperationResult<ApplicationUser>.Success(applicationUser);
         }
 
-        public async Task<OperationResult<ApplicationUser>> RegisterUserWithRoleAsync(ApplicationUser applicationUser, string password, string role, IList<string> creatorRoles)
+        public async Task<OperationResult<ApplicationUser>> RegisterUserWithRoleAsync(RegisterUserWithRoleCommand command)
         {
-            if (role == "SuperAdmin")
+            if (command.Role == "SuperAdmin")
             {
                 return OperationResult<ApplicationUser>.Fail("SuperAdmin role can only be created during seeding and cannot be assigned via this method.");
             }
-            else if (role == "Admin" && !creatorRoles.Contains("SuperAdmin"))
+            else if (command.Role == "Admin" && !command.CreatorRoles.Contains("SuperAdmin"))
             {
                 return OperationResult<ApplicationUser>.Fail("Only SuperAdmin can create Admin users.");
             }
-            else if ((role == "Vendor" || role == "Delivery") && !creatorRoles.Contains("SuperAdmin") && !creatorRoles.Contains("Admin"))
+            else if ((command.Role == "Vendor" || command.Role == "Delivery") && !command.CreatorRoles.Contains("SuperAdmin") && !command.CreatorRoles.Contains("Admin"))
             {
                 return OperationResult<ApplicationUser>.Fail("Only SuperAdmin or Admin can create Vendor or Delivery users.");
             }
 
-            var result = await userManager.CreateAsync(applicationUser, password);
+            var result = await userManager.CreateAsync(command.User, command.Password);
             if (!result.Succeeded)
             {
                 return OperationResult<ApplicationUser>.Fail("User creation failed.");
             }
 
-            if (!await roleManager.RoleExistsAsync(role))
+            if (!await roleManager.RoleExistsAsync(command.Role))
             {
-                var deleteResult = await userManager.DeleteAsync(applicationUser); // Rollback user creation
+                var deleteResult = await userManager.DeleteAsync(command.User); // Rollback user creation
                 if (!deleteResult.Succeeded) return OperationResult<ApplicationUser>.Fail("Failed to rollback user creation after role check.");
-                return OperationResult<ApplicationUser>.Fail($"Role '{role}' does not exist.");
+                return OperationResult<ApplicationUser>.Fail($"Role '{command.Role}' does not exist.");
             }
 
-            var roleResult = await userManager.AddToRoleAsync(applicationUser, role);
+            var roleResult = await userManager.AddToRoleAsync(command.User, command.Role);
             if (!roleResult.Succeeded)
             {
-                var deleteResult = await userManager.DeleteAsync(applicationUser);
+                var deleteResult = await userManager.DeleteAsync(command.User);
                 if (!deleteResult.Succeeded) return OperationResult<ApplicationUser>.Fail("Failed to assign role and rollback user creation.");
-                return OperationResult<ApplicationUser>.Fail($"Failed to assign role '{role}'.");
+                return OperationResult<ApplicationUser>.Fail($"Failed to assign role '{command.Role}'.");
             }
 
-            return OperationResult<ApplicationUser>.Success(applicationUser);
+            return OperationResult<ApplicationUser>.Success(command.User);
         }
 
-        public async Task<OperationResult<EmailOtp>> RequestPasswordResetWithOtpAsync(string email, CancellationToken cancellationToken)
+        public async Task<OperationResult<EmailOtp>> RequestPasswordResetWithOtpAsync(RequestPasswordResetCommand command, CancellationToken cancellationToken)
         {
-            var user = await userManager.FindByEmailAsync(email);
+            var user = await userManager.FindByEmailAsync(command.Email);
             if (user is null) return OperationResult<EmailOtp>.Fail("User is not found.");
             if (user.Email is null) return OperationResult<EmailOtp>.Fail("Email isn't found");
 
@@ -265,12 +266,12 @@ namespace LinkDev.Talabat.Application
             return OperationResult<EmailOtp>.Success();
         }
 
-        public async Task<OperationResult<bool>> ResetPasswordWithOtpAsync(string NewPassword, string Email, string otp, CancellationToken cancellationToken)
+        public async Task<OperationResult<bool>> ResetPasswordWithOtpAsync(ResetPasswordCommand command, CancellationToken cancellationToken)
         {
-            var user = await userManager.FindByEmailAsync(Email);
+            var user = await userManager.FindByEmailAsync(command.Email);
             if (user is null) return OperationResult<bool>.Fail("Invalid email");
 
-            var otpHash = OtpHelper.HashOtp(otp);
+            var otpHash = OtpHelper.HashOtp(command.Otp);
 
             var spec = new EmailOtpByUserAndPurposeSpecification(user.Id, OtpPurpose.PasswordReset.ToString(), otpHash);
             var otpEntry = await identityGenericRepository.GetWithSpecAsync(spec);
@@ -278,7 +279,7 @@ namespace LinkDev.Talabat.Application
             if (otpEntry.ExpiresAt < DateTime.UtcNow) return OperationResult<bool>.Fail("OTP expired.");
 
             var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
-            var resetPasswordResult = await userManager.ResetPasswordAsync(user, resetToken, NewPassword);
+            var resetPasswordResult = await userManager.ResetPasswordAsync(user, resetToken, command.NewPassword);
             if (!resetPasswordResult.Succeeded) return OperationResult<bool>.Fail(resetPasswordResult.Errors.Select(e => e.Description).ToList());
 
             identityGenericRepository.Delete(otpEntry);
@@ -288,9 +289,9 @@ namespace LinkDev.Talabat.Application
             return OperationResult<bool>.Success();
         }
 
-        public async Task<OperationResult<EmailOtp>> SendEmailConfirmationOtpAsync(string email, CancellationToken cancellationToken)
+        public async Task<OperationResult<EmailOtp>> SendEmailConfirmationOtpAsync(SendEmailOTPCommand command, CancellationToken cancellationToken)
         {
-            var user = await userManager.FindByEmailAsync(email);
+            var user = await userManager.FindByEmailAsync(command.Email);
             if (user is null) return OperationResult<EmailOtp>.Fail("User not found.");
 
             // Rate limiting: Check if a recent OTP was sent (within last 60 seconds)
@@ -333,28 +334,126 @@ namespace LinkDev.Talabat.Application
             return OperationResult<EmailOtp>.Success();
         }
 
-        public async Task<OperationResult<bool>> ToggleTwoFactorAsync(ClaimsPrincipal userClaims, bool enable, CancellationToken cancellationToken = default)
+        public async Task<OperationResult<bool>> ToggleTwoFactorAsync(ToggleTwoFactorCommand command, CancellationToken cancellationToken = default)
         {
-            var currentUserResult = await GetCurrentUserAsync(userClaims);
+            var currentUserResult = await GetCurrentUserAsync(command.User);
             if (!currentUserResult.IsSuccess)
                 return OperationResult<bool>.Fail(currentUserResult.Errors);
             var user = currentUserResult.Data;
             if (user is null)
                 return OperationResult<bool>.Fail("User not found.");
-            var result = await userManager.SetTwoFactorEnabledAsync(user, enable);
+            var result = await userManager.SetTwoFactorEnabledAsync(user, command.Enable);
             if (!result.Succeeded)
                 return OperationResult<bool>.Fail(result.Errors.Select(e => e.Description).ToList());
-            return OperationResult<bool>.Success(enable);
+            return OperationResult<bool>.Success(command.Enable);
         }
 
-        public async Task<OperationResult<Address>> UpdateUserAddressAsync(ClaimsPrincipal userClaims, Address address, CancellationToken cancellationToken = default)
+        public async Task<OperationResult<Address>> UpdateUserAddressAsync(UpdateUserAddressCommand command, CancellationToken cancellationToken = default)
         {
-            var applicationUser = await GetCurrentUserAsync(userClaims);
+            var applicationUser = await GetCurrentUserAsync(command.User);
             if (!applicationUser.IsSuccess) return OperationResult<Address>.Fail(applicationUser.Errors);
-            applicationUser.Data.Address = address;
+            applicationUser.Data.Address = command.Address;
             var result = await userManager.UpdateAsync(applicationUser.Data);
             if (!result.Succeeded) return OperationResult<Address>.Fail("Failed to update user address.");
-            return OperationResult<Address>.Success(address);
+            return OperationResult<Address>.Success(command.Address);
+        }
+
+        public async Task<OperationResult<LoginResult>> VerifyTwoFactorAsync(VerifyTwoFactorCommand command, CancellationToken cancellationToken = default)
+        {
+            var principal = ValidateTempToken(command.TempToken);
+            if (principal == null) return OperationResult<LoginResult>.Fail("Invalid or Expired Temp Token");
+
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            var purpose = principal.FindFirstValue("purpose");
+
+            if (userId == null || purpose != "2fa_verification")
+                return OperationResult<LoginResult>.Fail("Invalid Temp Token");
+
+            var user = await userManager.FindByIdAsync(userId);
+            if (user == null) return OperationResult<LoginResult>.Fail("User not found");
+
+            var hashedOtp = OtpHelper.HashOtp(command.Otp);
+            var spec = new EmailOtpByUserAndPurposeSpecification(user.Id, OtpPurpose.TwoFactorAuthentication.ToString(), hashedOtp);
+            var otpEntry = await identityGenericRepository.GetWithSpecAsync(spec, cancellationToken: cancellationToken);
+
+            if (otpEntry is null) return OperationResult<LoginResult>.Fail("Invalid OTP");
+            if (otpEntry.ExpiresAt < DateTime.UtcNow) return OperationResult<LoginResult>.Fail("OTP Expired");
+
+            identityGenericRepository.Delete(otpEntry);
+            await identityGenericRepository.SaveChangesAsync(cancellationToken);
+
+            var tokenResult = await CreateTokenAsync(user);
+            if (!tokenResult.IsSuccess) return OperationResult<LoginResult>.Fail(tokenResult.Errors);
+
+            await emailService.SendEmailAsync(user.Email, "Welcome Back", "Welcome Back To Talabat Website! You've signed in successfully.", cancellationToken);
+
+            return OperationResult<LoginResult>.Success(new LoginResult(false, null, tokenResult.Data, user));
+        }
+
+        public async Task<OperationResult<IEnumerable<string>>> GenerateRecoveryCodesAsync(GenerateRecoveryCodesCommand command)
+        {
+            var currentUserResult = await GetCurrentUserAsync(command.User);
+            if (!currentUserResult.IsSuccess)
+                return OperationResult<IEnumerable<string>>.Fail(currentUserResult.Errors);
+
+            var user = currentUserResult.Data;
+            if (user is null)
+                return OperationResult<IEnumerable<string>>.Fail("User not found.");
+
+            var codes = await userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, 5);
+            return OperationResult<IEnumerable<string>>.Success(codes ?? []);
+        }
+
+        public async Task<OperationResult<LoginResult>> VerifyRecoveryCodeAsync(VerifyRecoveryCodeCommand command, CancellationToken cancellationToken = default)
+        {
+            var principal = ValidateTempToken(command.TempToken);
+            if (principal == null) return OperationResult<LoginResult>.Fail("Invalid or Expired Temp Token");
+
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            var purpose = principal.FindFirstValue("purpose");
+
+            if (userId == null || purpose != "2fa_verification")
+                return OperationResult<LoginResult>.Fail("Invalid Temp Token");
+
+            var user = await userManager.FindByIdAsync(userId);
+            if (user == null) return OperationResult<LoginResult>.Fail("User not found");
+
+            var result = await userManager.RedeemTwoFactorRecoveryCodeAsync(user, command.RecoveryCode);
+
+            if (!result.Succeeded) return OperationResult<LoginResult>.Fail("Invalid recovery code");
+
+            var tokenResult = await CreateTokenAsync(user);
+            if (!tokenResult.IsSuccess) return OperationResult<LoginResult>.Fail(tokenResult.Errors);
+
+            await emailService.SendEmailAsync(user.Email, "Welcome Back", "Welcome Back To Talabat Website! You've signed in using a recovery code.", cancellationToken);
+
+            return OperationResult<LoginResult>.Success(new LoginResult(false, null, tokenResult.Data, user));
+        }
+
+        private ClaimsPrincipal? ValidateTempToken(string token)
+        {
+            try
+            {
+                var tokenHandler = new JwtSecurityTokenHandler();
+                var authKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["JWT:AuthKey"] ?? string.Empty));
+                var principal = tokenHandler.ValidateToken(token, new TokenValidationParameters
+                {
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = authKey,
+                    ValidateIssuer = true,
+                    ValidIssuer = configuration["JWT:ValidIssuer"],
+                    ValidateAudience = true,
+                    ValidAudience = configuration["JWT:ValidAudience"],
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.Zero
+                }, out SecurityToken validatedToken);
+
+                return principal;
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 }

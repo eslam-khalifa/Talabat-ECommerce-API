@@ -1,4 +1,7 @@
-﻿using AutoMapper;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using LinkDev.Talabat.Core.Commands;
+using AutoMapper;
 using LinkDev.Talabat.APIs.DTOs;
 using LinkDev.Talabat.APIs.Errors;
 using LinkDev.Talabat.APIs.Extensions;
@@ -6,8 +9,6 @@ using LinkDev.Talabat.APIs.Helpers;
 using LinkDev.Talabat.Core.Entities.Products;
 using LinkDev.Talabat.Core.Services.Contracts;
 using LinkDev.Talabat.Core.Specifications.ProductSpecs;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 
 namespace Talabat.APIs.Controllers
 {
@@ -27,7 +28,9 @@ namespace Talabat.APIs.Controllers
             var fileData = await productDto.Picture.ToByteArrayAsync();
             var product = mapper.Map<Product>(productDto);
             var currentUserId = (await authService.GetCurrentUserAsync(User)).Data.Id;
-            var result = await productService.CreateProductAsync(currentUserId, product, fileData.Value.fileBytes, fileData.Value.fileName);
+
+            var command = new CreateProductCommand(currentUserId, product, fileData.Value.fileBytes, fileData.Value.fileName);
+            var result = await productService.CreateProductAsync(command);
             if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(StatusCodes.Status400BadRequest, result.Errors));
             else return Ok(mapper.Map<ProductToReturnDto>(result.Data));
         }
@@ -95,7 +98,9 @@ namespace Talabat.APIs.Controllers
             if (!currentUserId.IsSuccess) return BadRequest(new ApiErrorResponse(StatusCodes.Status400BadRequest, currentUserId.Errors));
             var currentUserRoles = await authService.GetUserRolesAsync(User);
             if (!currentUserRoles.IsSuccess) return BadRequest(new ApiErrorResponse(StatusCodes.Status400BadRequest, currentUserRoles.Errors));
-            var result = await productService.UpdateProductAsync(id, product, fileData.Value.fileBytes, fileData.Value.fileName, currentUserId.Data.Id, currentUserRoles.Data);
+
+            var command = new UpdateProductCommand(id, product, fileData.Value.fileBytes, fileData.Value.fileName, currentUserId.Data.Id, currentUserRoles.Data);
+            var result = await productService.UpdateProductAsync(command);
             if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(StatusCodes.Status400BadRequest, result.Errors));
             else return Ok(mapper.Map<ProductToReturnDto>(result.Data));
         }
@@ -110,7 +115,9 @@ namespace Talabat.APIs.Controllers
             if (!currentUserId.IsSuccess) return BadRequest(new ApiErrorResponse(StatusCodes.Status400BadRequest, currentUserId.Errors));
             var currentUserRoles = await authService.GetUserRolesAsync(User);
             if (!currentUserRoles.IsSuccess) return BadRequest(new ApiErrorResponse(StatusCodes.Status400BadRequest, currentUserRoles.Errors));
-            var result = await productService.DeleteProductAsync(id, currentUserId.Data.Id, currentUserRoles.Data);
+
+            var command = new DeleteProductCommand(id, currentUserId.Data.Id, currentUserRoles.Data);
+            var result = await productService.DeleteProductAsync(command);
             if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(StatusCodes.Status400BadRequest, result.Errors));
             return Ok(result.Data);
         }

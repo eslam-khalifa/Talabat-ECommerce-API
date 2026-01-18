@@ -1,21 +1,24 @@
 ﻿using LinkDev.Talabat.Core;
+using LinkDev.Talabat.Core.Specifications.ProductSpecs;
+using LinkDev.Talabat.Core.Commands;
+using LinkDev.Talabat.Core.Repositories.Contracts;
 using LinkDev.Talabat.Core.Entities.Common;
 using LinkDev.Talabat.Core.Entities.Products;
 using LinkDev.Talabat.Core.Services.Contracts;
-using LinkDev.Talabat.Core.Specifications.ProductSpecs;
 
 namespace LinkDev.Talabat.Application
 {
     public class ProductService(IUnitOfWork unitOfWork, IFileService<Product> fileService) : IProductService
     {
         // Don't forget to validate in CRUD operations
-        public async Task<OperationResult<Product>> CreateProductAsync(string currentUserId, Product product, byte[]? fileBytes, string? fileName)
+        public async Task<OperationResult<Product>> CreateProductAsync(CreateProductCommand command)
         {
-            product.VendorId = currentUserId;
+            var product = command.Product;
+            product.VendorId = command.CurrentUserId;
 
-            if (fileBytes is null || string.IsNullOrEmpty(fileName)) return OperationResult<Product>.Fail("File bytes or file name is required.");
+            if (command.FileBytes is null || string.IsNullOrEmpty(command.FileName)) return OperationResult<Product>.Fail("File bytes or file name is required.");
 
-            var picturePath = await fileService.SaveFileAsync(fileBytes, fileName, new[] { ".png", ".jpg", ".jpeg" });
+            var picturePath = await fileService.SaveFileAsync(command.FileBytes, command.FileName, new[] { ".png", ".jpg", ".jpeg" });
             if (picturePath is null) return OperationResult<Product>.Fail("Failed to save file.");
             product.PictureUrl = picturePath;
 
@@ -42,12 +45,12 @@ namespace LinkDev.Talabat.Application
             else return OperationResult<Product>.Success(product);
         }
 
-        public async Task<OperationResult<bool>> DeleteProductAsync(int id, string currentUserId, IList<string> currentUserRoles)
+        public async Task<OperationResult<bool>> DeleteProductAsync(DeleteProductCommand command)
         {
             var productRepository = unitOfWork.Repository<Product>();
-            var existingProduct = await productRepository.GetAsync(id);
+            var existingProduct = await productRepository.GetAsync(command.Id);
             if (existingProduct is null) return OperationResult<bool>.Fail("Product not found.");
-            if (!currentUserRoles.Contains("Admin") && !currentUserRoles.Contains("SuperAdmin") || currentUserRoles.Contains("Vendor") && currentUserId != existingProduct.VendorId) return OperationResult<bool>.Fail("You are not authorized to delete this product.");
+            if (!command.CurrentUserRoles.Contains("Admin") && !command.CurrentUserRoles.Contains("SuperAdmin") || command.CurrentUserRoles.Contains("Vendor") && command.CurrentUserId != existingProduct.VendorId) return OperationResult<bool>.Fail("You are not authorized to delete this product.");
             productRepository.Delete(existingProduct);
             var result = await unitOfWork.CompleteAsync();
             if (result == 0) return OperationResult<bool>.Fail("Failed to delete product.");
@@ -88,23 +91,27 @@ namespace LinkDev.Talabat.Application
             return OperationResult<IReadOnlyList<Product>>.Success(products);
         }
 
-        public async Task<OperationResult<Product>> UpdateProductAsync(int id, Product product, byte[] fileBytes, string fileName, string currentUserId, IList<string> currentUserRoles)
+        public async Task<OperationResult<Product>> UpdateProductAsync(UpdateProductCommand command)
         {
-            if (!currentUserRoles.Contains("Admin") && !currentUserRoles.Contains("SuperAdmin") || currentUserRoles.Contains("Vendor") && currentUserId != product.VendorId) return OperationResult<Product>.Fail("You are not authorized to update this product.");
+            var product = command.Product;
+            if (!command.CurrentUserRoles.Contains("Admin") && !command.CurrentUserRoles.Contains("SuperAdmin") || command.CurrentUserRoles.Contains("Vendor") && command.CurrentUserId != product.VendorId) return OperationResult<Product>.Fail("You are not authorized to update this product.");
 
             var productRepository = unitOfWork.Repository<Product>();
             var categoryRepository = unitOfWork.Repository<ProductCategory>();
             var brandRepository = unitOfWork.Repository<ProductBrand>();
 
-            var existingProduct = await productRepository.GetAsync(id); // this instance is tracked already be EFCore.
+            var existingProduct = await productRepository.GetAsync(command.Id); // this instance is tracked already be EFCore.
             if (existingProduct is null) return OperationResult<Product>.Fail("Product not found.");
 
-            var fileExists = fileService.FileExists(fileName);
-            if (!fileExists)
+            if (command.FileName != null && command.FileBytes != null)
             {
-                var picturePath = await fileService.SaveFileAsync(fileBytes, fileName, new[] { ".png", ".jpg", ".jpeg" });
-                if (picturePath is null) return OperationResult<Product>.Fail("Failed to save file.");
-                existingProduct.PictureUrl = picturePath;
+                var fileExists = fileService.FileExists(command.FileName);
+                if (!fileExists)
+                {
+                    var picturePath = await fileService.SaveFileAsync(command.FileBytes, command.FileName, new[] { ".png", ".jpg", ".jpeg" });
+                    if (picturePath is null) return OperationResult<Product>.Fail("Failed to save file.");
+                    existingProduct.PictureUrl = picturePath;
+                }
             }
 
             if (product.Price <= 0) return OperationResult<Product>.Fail("Price must be greater than 0.");

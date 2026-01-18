@@ -1,4 +1,6 @@
-﻿using AutoMapper;
+﻿using Talabat.APIs.Controllers;
+using LinkDev.Talabat.Core.Commands;
+using AutoMapper;
 using LinkDev.Talabat.APIs.DTOs;
 using LinkDev.Talabat.APIs.Errors;
 using LinkDev.Talabat.Core.Entities.Identity;
@@ -8,7 +10,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
-using Talabat.APIs.Controllers;
 
 namespace LinkDev.Talabat.APIs.Controllers
 {
@@ -36,9 +37,10 @@ namespace LinkDev.Talabat.APIs.Controllers
         {
             var address = _mapper.Map<AddressDto, Core.Entities.Order_Aggregate.Address>(orderDto.ShippingAddress);
             var email = User.FindFirstValue(ClaimTypes.Email) ?? string.Empty;
-            var order = await _orderService.CreateOrderAsync(email, orderDto.BasketId, orderDto.DeliveryMethodId, address);
-            if(order is null) return BadRequest(new ApiResponse(400));
-            return Ok(_mapper.Map<Order, OrderToReturnDto>(order));
+            var command = new CreateOrderCommand(email, orderDto.BasketId, orderDto.DeliveryMethodId, address);
+            var result = await _orderService.CreateOrderAsync(command);
+            if(!result.IsSuccess) return BadRequest(new ApiErrorResponse(400, result.Errors));
+            return Ok(_mapper.Map<Order, OrderToReturnDto>(result.Data));
         }
 
         [Authorize]
@@ -47,8 +49,9 @@ namespace LinkDev.Talabat.APIs.Controllers
         public async Task<ActionResult<IReadOnlyList<OrderToReturnDto>>> GetOrdersForUser()
         {
             var email = User.FindFirstValue(ClaimTypes.Email) ?? string.Empty;
-            var orders = await _orderService.GetOrdersForUserAsync(email);
-            return Ok(_mapper.Map<IReadOnlyList<Order>, IReadOnlyList<OrderToReturnDto>>(orders));
+            var result = await _orderService.GetOrdersForUserAsync(email);
+            if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(400, result.Errors));
+            return Ok(_mapper.Map<IReadOnlyList<Order>, IReadOnlyList<OrderToReturnDto>>(result.Data));
         }
 
         [Authorize]
@@ -58,17 +61,18 @@ namespace LinkDev.Talabat.APIs.Controllers
         public async Task<ActionResult<OrderToReturnDto>> GetOrderForUser(int id)
         {
             var email = User.FindFirstValue(ClaimTypes.Email) ?? string.Empty;
-            var order = await _orderService.GetOrderByIdForUserAsync(email, id);
-            if (order is null) return NotFound(new ApiResponse(404));
-            return Ok(_mapper.Map<Order, OrderToReturnDto>(order));
+            var result = await _orderService.GetOrderByIdForUserAsync(email, id);
+            if (!result.IsSuccess) return NotFound(new ApiErrorResponse(404, result.Errors));
+            return Ok(_mapper.Map<Order, OrderToReturnDto>(result.Data));
         }
 
         [ProducesResponseType(typeof(IReadOnlyList<DeliveryMethod>), StatusCodes.Status200OK)]
         [HttpGet("deliveryMethods")]
         public async Task<ActionResult<IReadOnlyList<DeliveryMethod>>> GetDeliveryMethods()
         {
-            var deliveryMethods = await _orderService.GetDeliveryMethodsAsync();
-            return Ok(deliveryMethods);
+            var result = await _orderService.GetDeliveryMethodsAsync();
+            if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(400, result.Errors));
+            return Ok(result.Data);
         }
     }
 }

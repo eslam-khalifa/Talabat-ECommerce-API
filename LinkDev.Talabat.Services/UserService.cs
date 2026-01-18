@@ -1,9 +1,10 @@
-﻿using LinkDev.Talabat.Core.Entities.Common;
-using LinkDev.Talabat.Core.Entities.Identity;
-using LinkDev.Talabat.Core.Services.Contracts;
-using LinkDev.Talabat.Core.Specifications.UserSpecs;
+﻿using LinkDev.Talabat.Core.Specifications.UserSpecs;
 using Microsoft.AspNetCore.Identity;
 using System.Globalization;
+using LinkDev.Talabat.Core.Commands;
+using LinkDev.Talabat.Core.Services.Contracts;
+using LinkDev.Talabat.Core.Entities.Common;
+using LinkDev.Talabat.Core.Entities.Identity;
 
 namespace LinkDev.Talabat.Application
 {
@@ -61,9 +62,9 @@ namespace LinkDev.Talabat.Application
             return OperationResult<IReadOnlyList<ApplicationUser>>.Success(baseUsers);
         }
 
-        public async Task<OperationResult<bool>> DeleteUserAsync(string userId)
+        public async Task<OperationResult<bool>> DeleteUserAsync(DeleteUserCommand command)
         {
-            var user = await userManager.FindByIdAsync(userId);
+            var user = await userManager.FindByIdAsync(command.UserId);
             if (user == null)
             {
                 return OperationResult<bool>.Fail("User not found.");

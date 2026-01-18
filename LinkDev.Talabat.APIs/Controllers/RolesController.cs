@@ -1,11 +1,12 @@
-﻿using LinkDev.Talabat.APIs.DTOs;
+﻿using Microsoft.AspNetCore.Mvc;
+using Talabat.APIs.Controllers;
+using LinkDev.Talabat.Core.Commands;
+using LinkDev.Talabat.APIs.DTOs;
 using LinkDev.Talabat.APIs.Errors;
 using LinkDev.Talabat.Core.Entities.Identity;
 using LinkDev.Talabat.Core.Services.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Mvc;
-using Talabat.APIs.Controllers;
 
 namespace LinkDev.Talabat.APIs.Controllers
 {
@@ -20,7 +21,12 @@ namespace LinkDev.Talabat.APIs.Controllers
             var actor = await userManager.GetUserAsync(User);
             if (actor is null) return Unauthorized(new ApiErrorResponse(401, "Unauthorized"));
             var actorRoles = (await userManager.GetRolesAsync(actor));
-            var result = await roleService.AssignRoleAsync(actor!, dto.Role, actorRoles);
+
+            var userToAssign = await userManager.FindByEmailAsync(dto.UserEmail);
+            if (userToAssign is null) return BadRequest(new ApiErrorResponse(400, "User to assign not found"));
+
+            var command = new AssignRoleCommand(userToAssign, dto.Role, actorRoles);
+            var result = await roleService.AssignRoleAsync(command);
             if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(400, result.Errors));
             return Ok(result.Data);
         }
@@ -31,7 +37,12 @@ namespace LinkDev.Talabat.APIs.Controllers
             var actor = await userManager.GetUserAsync(User);
             if (actor is null) return Unauthorized(new ApiErrorResponse(401, "Unauthorized"));
             var actorRoles = (await userManager.GetRolesAsync(actor));
-            var result = await roleService.RemoveRoleFromUserAsync(actor, dto.Role, actorRoles);
+
+            var userToRemove = await userManager.FindByEmailAsync(dto.UserEmail);
+            if (userToRemove is null) return BadRequest(new ApiErrorResponse(400, "User not found"));
+
+            var command = new RemoveRoleFromUserCommand(userToRemove, dto.Role, actorRoles);
+            var result = await roleService.RemoveRoleFromUserAsync(command);
             if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(400, result.Errors));
             return Ok(result.Data);
         }
@@ -42,7 +53,9 @@ namespace LinkDev.Talabat.APIs.Controllers
             var actor = await userManager.GetUserAsync(User);
             if (actor is null) return Unauthorized(new ApiErrorResponse(401, "Unauthorized"));
             var actorRoles = (await userManager.GetRolesAsync(actor));
-            var result = await roleService.CreateRoleAsync(applicationRoleCreateDto.Name, applicationRoleCreateDto.Description, actorRoles);
+
+            var command = new CreateRoleCommand(applicationRoleCreateDto.Name, applicationRoleCreateDto.Description, actorRoles);
+            var result = await roleService.CreateRoleAsync(command);
             if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(400, result.Errors));
             return Ok(result.Data);
         }
@@ -61,7 +74,9 @@ namespace LinkDev.Talabat.APIs.Controllers
             var actor = await userManager.GetUserAsync(User);
             if (actor is null) return Unauthorized(new ApiErrorResponse(401, "Unauthorized"));
             var actorRoles = (await userManager.GetRolesAsync(actor));
-            var result = await roleService.DeleteRoleAsync(roleName, actorRoles);
+
+            var command = new DeleteRoleCommand(roleName, actorRoles);
+            var result = await roleService.DeleteRoleAsync(command);
             if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(400, result.Errors));
             return Ok(result.Data);
         }
@@ -73,7 +88,9 @@ namespace LinkDev.Talabat.APIs.Controllers
             if (actor is null) return Unauthorized(new ApiErrorResponse(401, "Unauthorized"));
             var actorRoles = (await userManager.GetRolesAsync(actor));
             if (actorRoles is null) return BadRequest(new ApiErrorResponse(400, "Actor roles not found"));
-            var result = await roleService.UpdateRoleAsync(applicationRoleUpdateDto.OldName, applicationRoleUpdateDto.NewName, applicationRoleUpdateDto.NewDescription, actorRoles);
+
+            var command = new UpdateRoleCommand(applicationRoleUpdateDto.OldName, applicationRoleUpdateDto.NewName, applicationRoleUpdateDto.NewDescription, actorRoles);
+            var result = await roleService.UpdateRoleAsync(command);
             if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(400, result.Errors));
             return Ok(result.Data);
         }

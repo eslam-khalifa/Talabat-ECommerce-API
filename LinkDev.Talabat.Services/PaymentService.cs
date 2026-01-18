@@ -1,9 +1,11 @@
 ﻿using LinkDev.Talabat.Core;
+using LinkDev.Talabat.Core.Specifications.OrderSpecs;
+using LinkDev.Talabat.Core.Commands;
+using LinkDev.Talabat.Core.Entities.Common;
 using LinkDev.Talabat.Core.Entities.Basket;
 using LinkDev.Talabat.Core.Entities.Order_Aggregate;
 using LinkDev.Talabat.Core.Repositories.Contracts;
 using LinkDev.Talabat.Core.Services.Contracts;
-using LinkDev.Talabat.Core.Specifications.OrderSpecs;
 using Microsoft.Extensions.Configuration;
 using Stripe;
 
@@ -13,18 +15,21 @@ namespace LinkDev.Talabat.Application
         IBasketRepository basketRepository,
         IUnitOfWork unitOfWork) : IPaymentService
     {
-        public async Task<CustomerBasket?> CreateOrUpdatePaymentIntent(string basketId)
+        public async Task<OperationResult<CustomerBasket>> CreateOrUpdatePaymentIntent(CreateOrUpdatePaymentIntentCommand command)
         {
             StripeConfiguration.ApiKey = configuration["StripeSettings:SecretKey"];
-            var basket = await basketRepository.GetBasketAsync(basketId);
-            if (basket is null) return null;
+            var basket = await basketRepository.GetBasketAsync(command.BasketId);
+            if (basket is null) return OperationResult<CustomerBasket>.Fail("Basket not found");
             var shippingPrice = 0m;
             if (basket.DeliveryMethodId.HasValue)
             {
                 var deliveryMethodRepository = unitOfWork.Repository<DeliveryMethod>();
                 var deliveryMethod = await deliveryMethodRepository.GetAsync(basket.DeliveryMethodId.Value);
-                shippingPrice = deliveryMethod.Cost;
-                basket.ShippingPrice = shippingPrice;
+                if (deliveryMethod != null)
+                {
+                    shippingPrice = deliveryMethod.Cost;
+                    basket.ShippingPrice = shippingPrice;
+                }
             }
             if (basket.Items?.Count > 0)
             {
@@ -32,7 +37,7 @@ namespace LinkDev.Talabat.Application
                 foreach (var item in basket.Items)
                 {
                     var product = await productRepository.GetAsync(item.Id);
-                    if (item.Price != product.Price)
+                    if (product != null && item.Price != product.Price)
                         item.Price = product.Price;
                 }
             }
@@ -59,22 +64,22 @@ namespace LinkDev.Talabat.Application
                 await paymentIntentService.UpdateAsync(basket.PaymentIntentId, options);
             }
             await basketRepository.UpdateBasketAsync(basket);
-            return basket;
+            return OperationResult<CustomerBasket>.Success(basket);
         }
 
-        public async Task<Order?> UpdateOrderStatus(string paymentIntentId, bool isPaid)
+        public async Task<OperationResult<Order>> UpdateOrderStatus(UpdateOrderStatusCommand command)
         {
             var orderRepository = unitOfWork.Repository<Order>();
-            var spec = new OrderWithPaymentIntentSpecifications(paymentIntentId);
+            var spec = new OrderWithPaymentIntentSpecifications(command.PaymentIntentId);
             var order = await orderRepository.GetWithSpecAsync(spec);
-            if (order is null) return null;
-            if (isPaid)
+            if (order is null) return OperationResult<Order>.Fail("Order not found");
+            if (command.IsPaid)
                 order.Status = OrderStatus.PaymentReceived;
             else
                 order.Status = OrderStatus.PaymentFailed;
             orderRepository.Update(order);
             await unitOfWork.CompleteAsync();
-            return order;
+            return OperationResult<Order>.Success(order);
         }
     }
 }

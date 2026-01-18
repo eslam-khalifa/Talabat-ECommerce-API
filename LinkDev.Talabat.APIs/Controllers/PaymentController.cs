@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Stripe;
 using Talabat.APIs.Controllers;
+using LinkDev.Talabat.Core.Commands;
 
 namespace LinkDev.Talabat.APIs.Controllers
 {
@@ -19,9 +20,10 @@ namespace LinkDev.Talabat.APIs.Controllers
         [HttpPost("{basketId}")]
         public async Task<ActionResult<CustomerBasket>> CreateOrUpdatePaymentIntent(string basketId)
         {
-            var basket = await paymentService.CreateOrUpdatePaymentIntent(basketId);
-            if (basket is null) return BadRequest(new ApiErrorResponse(400, "An Error with your Basket."));
-            return Ok(basket);
+            var command = new CreateOrUpdatePaymentIntentCommand(basketId);
+            var result = await paymentService.CreateOrUpdatePaymentIntent(command);
+            if (!result.IsSuccess) return BadRequest(new ApiErrorResponse(400, result.Errors));
+            return Ok(result.Data);
         }
 
         [HttpPost("webhook")]
@@ -38,11 +40,13 @@ namespace LinkDev.Talabat.APIs.Controllers
             switch (stripeEvent.Type)
             {
                 case EventTypes.PaymentIntentSucceeded:
-                    await paymentService.UpdateOrderStatus(paymentIntent.Id, true);
+                    var successCommand = new UpdateOrderStatusCommand(paymentIntent.Id, true);
+                    await paymentService.UpdateOrderStatus(successCommand);
                     logger.LogInformation("handled webhook event: {EventId}", stripeEvent.Id);
                     break;
                 case EventTypes.PaymentIntentPaymentFailed:
-                    await paymentService.UpdateOrderStatus(paymentIntent.Id, false);
+                    var failCommand = new UpdateOrderStatusCommand(paymentIntent.Id, false);
+                    await paymentService.UpdateOrderStatus(failCommand);
                     logger.LogInformation("handled webhook event: {EventId}", stripeEvent.Id);
                     break;
                 default:

@@ -3,75 +3,76 @@ using LinkDev.Talabat.Core.Entities.Identity;
 using LinkDev.Talabat.Core.Services.Contracts;
 using Microsoft.AspNetCore.Identity;
 using System.Globalization;
+using LinkDev.Talabat.Core.Commands;
 
 namespace LinkDev.Talabat.Application
 {
     public class RoleService(UserManager<ApplicationUser> userManager,
         RoleManager<ApplicationRole> roleManager) : IRoleService
     {
-        public async Task<OperationResult<string>> AssignRoleAsync(ApplicationUser applicationUser, string role, IList<string> actorRoles)
+        public async Task<OperationResult<string>> AssignRoleAsync(AssignRoleCommand command)
         {
-            if (!await roleManager.RoleExistsAsync(role))
-                return OperationResult<string>.Fail($"Role '{role}' does not exist");
+            if (!await roleManager.RoleExistsAsync(command.Role))
+                return OperationResult<string>.Fail($"Role '{command.Role}' does not exist");
 
-            var currentUserRoles = await userManager.GetRolesAsync(applicationUser);
+            var currentUserRoles = await userManager.GetRolesAsync(command.User);
 
-            if (role == "Admin" && !actorRoles.Contains("SuperAdmin"))
+            if (command.Role == "Admin" && !command.ActorRoles.Contains("SuperAdmin"))
                 return OperationResult<string>.Fail("Only SuperAdmin can assign Admin role");
 
-            if ((role == "Vendor" || role == "Delivery") && actorRoles.Contains("Admin") && actorRoles.Contains("SuperAdmin"))
+            if ((command.Role == "Vendor" || command.Role == "Delivery") && command.ActorRoles.Contains("Admin") && command.ActorRoles.Contains("SuperAdmin"))
                 return OperationResult<string>.Fail("Only Admin or SuperAdmin can assign Vendor/Delivery roles");
 
-            if (currentUserRoles.Contains(role))
-                return OperationResult<string>.Fail($"User already has role '{role}'");
+            if (currentUserRoles.Contains(command.Role))
+                return OperationResult<string>.Fail($"User already has role '{command.Role}'");
 
-            var result = await userManager.AddToRoleAsync(applicationUser, role);
+            var result = await userManager.AddToRoleAsync(command.User, command.Role);
             if (!result.Succeeded) return OperationResult<string>.Fail(result.Errors.Select(e => e.Description).ToList());
 
-            return OperationResult<string>.Success($"Role '{role}' assigned to '{applicationUser}'");
+            return OperationResult<string>.Success($"Role '{command.Role}' assigned to '{command.User}'");
         }
 
-        public async Task<OperationResult<string>> RemoveRoleFromUserAsync(ApplicationUser applicationUser, string role, IList<string> actorRoles)
+        public async Task<OperationResult<string>> RemoveRoleFromUserAsync(RemoveRoleFromUserCommand command)
         {
-            var currentUserRoles = await userManager.GetRolesAsync(applicationUser);
-            if (!currentUserRoles.Contains(role))
-                return OperationResult<string>.Fail($"User does not have role '{role}'");
+            var currentUserRoles = await userManager.GetRolesAsync(command.User);
+            if (!currentUserRoles.Contains(command.Role))
+                return OperationResult<string>.Fail($"User does not have role '{command.Role}'");
 
-            if (role == "Admin" && !actorRoles.Contains("SuperAdmin"))
+            if (command.Role == "Admin" && !command.ActorRoles.Contains("SuperAdmin"))
                 return OperationResult<string>.Fail("Only SuperAdmin can remove Admin role");
 
-            var result = await userManager.RemoveFromRoleAsync(applicationUser, role);
+            var result = await userManager.RemoveFromRoleAsync(command.User, command.Role);
             if (!result.Succeeded) return OperationResult<string>.Fail(result.Errors.Select(e => e.Description).ToList());
 
-            return OperationResult<string>.Success($"Role '{role}' removed from '{applicationUser}'");
+            return OperationResult<string>.Success($"Role '{command.Role}' removed from '{command.User}'");
         }
 
-        public async Task<OperationResult<string>> CreateRoleAsync(string roleName, string descritpion, IList<string> actorRoles)
+        public async Task<OperationResult<string>> CreateRoleAsync(CreateRoleCommand command)
         {
-            if (string.IsNullOrWhiteSpace(roleName))
+            if (string.IsNullOrWhiteSpace(command.RoleName))
                 return OperationResult<string>.Fail("Role name is required");
 
-            if (await roleManager.RoleExistsAsync(roleName))
-                return OperationResult<string>.Fail($"Role '{roleName}' already exists");
+            if (await roleManager.RoleExistsAsync(command.RoleName))
+                return OperationResult<string>.Fail($"Role '{command.RoleName}' already exists");
 
-            if (roleName == "Admin" && !actorRoles.Contains("SuperAdmin"))
+            if (command.RoleName == "Admin" && !command.ActorRoles.Contains("SuperAdmin"))
                 return OperationResult<string>.Fail("Only SuperAdmin can create Admin role");
 
-            var result = await roleManager.CreateAsync(new ApplicationRole(roleName, descritpion));
+            var result = await roleManager.CreateAsync(new ApplicationRole(command.RoleName, command.Description));
             if (!result.Succeeded) return OperationResult<string>.Fail(result.Errors.Select(e => e.Description).ToList());
 
-            return OperationResult<string>.Success($"Role '{roleName}' created successfully");
+            return OperationResult<string>.Success($"Role '{command.RoleName}' created successfully");
         }
 
-        public async Task<OperationResult<string>> DeleteRoleAsync(string roleName, IList<string> actorRoles)
+        public async Task<OperationResult<string>> DeleteRoleAsync(DeleteRoleCommand command)
         {
-            if (!actorRoles.Contains("SuperAdmin"))
+            if (!command.ActorRoles.Contains("SuperAdmin"))
                 return OperationResult<string>.Fail("Only SuperAdmin can delete roles");
 
-            if (string.IsNullOrWhiteSpace(roleName))
+            if (string.IsNullOrWhiteSpace(command.RoleName))
                 return OperationResult<string>.Fail("Role name is required");
 
-            roleName = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(roleName.ToLower());
+            var roleName = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(command.RoleName.ToLower());
             var role = await roleManager.FindByNameAsync(roleName);
             if (role == null)
                 return OperationResult<string>.Fail($"Role '{roleName}' does not exist");
@@ -86,35 +87,35 @@ namespace LinkDev.Talabat.Application
             return OperationResult<string>.Success($"Role '{roleName}' deleted successfully");
         }
 
-        public async Task<OperationResult<string>> UpdateRoleAsync(string currentRoleName, string newRoleName, string newDescription, IList<string> actorRoles)
+        public async Task<OperationResult<string>> UpdateRoleAsync(UpdateRoleCommand command)
         {
-            if (!actorRoles.Contains("SuperAdmin"))
+            if (!command.ActorRoles.Contains("SuperAdmin"))
                 return OperationResult<string>.Fail("Only SuperAdmin can update roles");
 
-            if (string.IsNullOrWhiteSpace(currentRoleName))
+            if (string.IsNullOrWhiteSpace(command.OldRoleName))
                 return OperationResult<string>.Fail("Current role name is required");
 
-            var roleToUpdate = await roleManager.FindByNameAsync(currentRoleName);
+            var roleToUpdate = await roleManager.FindByNameAsync(command.OldRoleName);
             if (roleToUpdate == null)
-                return OperationResult<string>.Fail($"Role '{currentRoleName}' not found");
+                return OperationResult<string>.Fail($"Role '{command.OldRoleName}' not found");
 
-            bool nameChanged = !string.IsNullOrWhiteSpace(newRoleName) && newRoleName != currentRoleName;
-            bool descriptionChanged = !string.IsNullOrWhiteSpace(newDescription) && newDescription != roleToUpdate.Description;
+            bool nameChanged = !string.IsNullOrWhiteSpace(command.NewRoleName) && command.NewRoleName != command.OldRoleName;
+            bool descriptionChanged = !string.IsNullOrWhiteSpace(command.NewDescription) && command.NewDescription != roleToUpdate.Description;
 
             if (!nameChanged && !descriptionChanged)
                 return OperationResult<string>.Fail("No changes detected. Provide a new name or description.");
 
             if (nameChanged)
             {
-                if (await roleManager.RoleExistsAsync(newRoleName))
-                    return OperationResult<string>.Fail($"Role '{newRoleName}' already exists");
-                roleToUpdate.Name = newRoleName;
-                roleToUpdate.NormalizedName = roleManager.NormalizeKey(newRoleName);
+                if (await roleManager.RoleExistsAsync(command.NewRoleName!))
+                    return OperationResult<string>.Fail($"Role '{command.NewRoleName}' already exists");
+                roleToUpdate.Name = command.NewRoleName;
+                roleToUpdate.NormalizedName = roleManager.NormalizeKey(command.NewRoleName!);
             }
 
             if (descriptionChanged)
             {
-                roleToUpdate.Description = newDescription;
+                roleToUpdate.Description = command.NewDescription!;
             }
 
             // RoleManager.UpdateAsync is necessary to persist changes to the role in the underlying store.
@@ -125,15 +126,15 @@ namespace LinkDev.Talabat.Application
             string successMessage = "";
             if (nameChanged && descriptionChanged)
             {
-                successMessage = $"Role '{currentRoleName}' name updated to '{roleToUpdate.Name}' and description updated successfully.";
+                successMessage = $"Role '{command.OldRoleName}' name updated to '{roleToUpdate.Name}' and description updated successfully.";
             }
             else if (nameChanged)
             {
-                successMessage = $"Role '{currentRoleName}' name updated to '{roleToUpdate.Name}' successfully.";
+                successMessage = $"Role '{command.OldRoleName}' name updated to '{roleToUpdate.Name}' successfully.";
             }
             else if (descriptionChanged)
             {
-                successMessage = $"Role '{currentRoleName}' description updated successfully.";
+                successMessage = $"Role '{command.OldRoleName}' description updated successfully.";
             }
 
             return OperationResult<string>.Success(successMessage);
